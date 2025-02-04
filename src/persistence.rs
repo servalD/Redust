@@ -16,7 +16,6 @@ pub fn snapshot(db: &Db) {
 }
 
 pub fn restore_state(db: &Db) {
-    // 1. Chargement du snapshot
     if let Ok(file) = File::open("snapshot.json") {
         if let Ok(snapshot_data) = serde_json::from_reader::<_, HashMap<String, Entry>>(file) {
             let mut db_lock = db.lock().unwrap();
@@ -29,7 +28,6 @@ pub fn restore_state(db: &Db) {
         println!("Aucun snapshot trouvé.");
     }
 
-    // 2. Lecture de l'AOF et application des commandes
     if let Ok(file) = File::open("appendonly.aof") {
         let reader = BufReader::new(file);
         for line in reader.lines() {
@@ -43,9 +41,7 @@ pub fn restore_state(db: &Db) {
     }
 }
 
-/// Applique une commande (SET, UPDATE, DELETE) à la base de données
 fn apply_command(command: &str, db: &Db) {
-    // Découpe la commande en parties
     let parts: Vec<&str> = command.split_whitespace().collect();
     if parts.is_empty() {
         return;
@@ -53,13 +49,11 @@ fn apply_command(command: &str, db: &Db) {
 
     match parts[0].to_uppercase().as_str() {
         "SET" | "UPDATE" => {
-            // Syntaxe attendue : COMMAND key value [TTL timestamp]
             if parts.len() >= 3 {
                 let key = parts[1].to_string();
                 let value = parts[2].to_string();
                 let expire_at = if parts.len() >= 5 && parts[3].to_uppercase() == "TTL" {
                     if let Ok(ts) = parts[4].parse::<u64>() {
-                        // Reconstruit un SystemTime à partir de l'UNIX_EPOCH et du timestamp
                         Some(SystemTime::UNIX_EPOCH + Duration::from_secs(ts))
                     } else {
                         None
@@ -73,7 +67,6 @@ fn apply_command(command: &str, db: &Db) {
             }
         },
         "DELETE" => {
-            // Syntaxe attendue : DELETE key
             if parts.len() >= 2 {
                 let key = parts[1].to_string();
                 let mut db_lock = db.lock().unwrap();
@@ -81,7 +74,6 @@ fn apply_command(command: &str, db: &Db) {
             }
         },
         _ => {
-            // Commande inconnue dans l'AOF, on ignore
         }
     }
 }
@@ -108,7 +100,6 @@ pub fn run_aof_writer(rx: Receiver<String>) {
             }
         }
 
-        // Écriture groupée dans le fichier
         for cmd in buffer {
             writeln!(file, "{}", cmd).unwrap();
         }
