@@ -59,7 +59,7 @@ fn start_test_server() -> std::net::SocketAddr {
 }
 
 #[test]
-fn test_set_get() {
+fn test_set_get_update() {
     let addr = start_test_server();
     thread::sleep(Duration::from_millis(100));
     let mut stream = TcpStream::connect(addr).unwrap();
@@ -71,9 +71,22 @@ fn test_set_get() {
     assert_eq!(resp.trim(), "OK");
 
     resp.clear();
+
     writeln!(stream, "GET mykey").unwrap();
     reader.read_line(&mut resp).unwrap();
     assert_eq!(resp.trim(), "myvalue");
+
+    resp.clear();
+
+    writeln!(stream, "UPDATE mykey updatedvalue").unwrap();
+    reader.read_line(&mut resp).unwrap();
+    assert_eq!(resp.trim(), "OK");
+
+    resp.clear();
+
+    writeln!(stream, "GET mykey").unwrap();
+    reader.read_line(&mut resp).unwrap();
+    assert_eq!(resp.trim(), "updatedvalue");
 }
 
 #[test]
@@ -127,4 +140,63 @@ fn test_snapshot() {
     let loaded: HashMap<String, Entry> = serde_json::from_reader(file).unwrap();
     assert!(loaded.contains_key("snapkey"));
     assert_eq!(loaded.get("snapkey").unwrap().value, "snapvalue");
+}
+
+#[test]
+fn test_transaction_exec() {
+    let addr = start_test_server();
+    thread::sleep(Duration::from_millis(100));
+    let mut stream = TcpStream::connect(addr).unwrap();
+    let mut reader = BufReader::new(stream.try_clone().unwrap());
+    let mut resp = String::new();
+
+    writeln!(stream, "MULTI").unwrap();
+    reader.read_line(&mut resp).unwrap();
+    assert_eq!(resp.trim(), "OK");
+    resp.clear();
+
+    writeln!(stream, "SET txkey txvalue").unwrap();
+    reader.read_line(&mut resp).unwrap();
+    assert_eq!(resp.trim(), "QUEUED");
+    resp.clear();
+
+    writeln!(stream, "GET txkey").unwrap();
+    reader.read_line(&mut resp).unwrap();
+    assert_eq!(resp.trim(), "QUEUED");
+    resp.clear();
+
+    writeln!(stream, "EXEC").unwrap();
+    reader.read_line(&mut resp).unwrap();
+    assert_eq!(resp.trim(), "OK");
+    resp.clear();
+    reader.read_line(&mut resp).unwrap();
+    assert_eq!(resp.trim(), "txvalue");
+}
+
+#[test]
+fn test_transaction_discard() {
+    let addr = start_test_server();
+    thread::sleep(Duration::from_millis(100));
+    let mut stream = TcpStream::connect(addr).unwrap();
+    let mut reader = BufReader::new(stream.try_clone().unwrap());
+    let mut resp = String::new();
+
+    writeln!(stream, "MULTI").unwrap();
+    reader.read_line(&mut resp).unwrap();
+    assert_eq!(resp.trim(), "OK");
+    resp.clear();
+
+    writeln!(stream, "SET delkey delvalue").unwrap();
+    reader.read_line(&mut resp).unwrap();
+    assert_eq!(resp.trim(), "QUEUED");
+    resp.clear();
+
+    writeln!(stream, "DISCARD").unwrap();
+    reader.read_line(&mut resp).unwrap();
+    assert_eq!(resp.trim(), "OK");
+    resp.clear();
+
+    writeln!(stream, "GET delkey").unwrap();
+    reader.read_line(&mut resp).unwrap();
+    assert_eq!(resp.trim(), "nil");
 }

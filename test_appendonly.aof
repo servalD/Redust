@@ -1,2 +1,5 @@
 SET mykey myvalue
 SET tempkey tempvalue TTL 1738406116
+SET mykey myvalue
+SET mykey myvalue
+SET txkey txvalue
