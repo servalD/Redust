@@ -215,6 +215,21 @@ fn process_command(parts: &[&str], db: &Db, aof_tx: &Sender<String>) -> String {
                 "nil".to_string()
             }
         },
+        "DELETE" => {
+            if parts.len() < 2 {
+                return "ERR: Usage: DELETE key".to_string();
+            }
+            let key = parts[1].to_string();
+            {
+                let mut db_guard = db.lock().unwrap();
+                if db_guard.remove(&key).is_some() {
+                    aof_tx.send(format!("DELETE {}", key)).unwrap();
+                    "OK".to_string()
+                } else {
+                    "ERR: La clé n'existe pas.".to_string()
+                }
+            }
+        },
         "QUIT" => "BYE".to_string(),
         _ => "ERR: Commande inconnue".to_string(),
     }
@@ -290,6 +305,18 @@ fn process_command_parts(parts: &[&str], db: &mut HashMap<String, Entry>, aof_tx
                 }
             } else {
                 "nil".to_string()
+            }
+        },
+        "DELETE" => {
+            if parts.len() < 2 {
+                return "ERR: Usage: DELETE key".to_string();
+            }
+            let key = parts[1].to_string();
+            if db.remove(&key).is_some() {
+                aof_tx.send(format!("DELETE {}", key)).unwrap();
+                "OK".to_string()
+            } else {
+                "ERR: La clé n'existe pas.".to_string()
             }
         },
         "QUIT" => "BYE".to_string(),

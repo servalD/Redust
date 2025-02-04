@@ -59,7 +59,7 @@ fn start_test_server() -> std::net::SocketAddr {
 }
 
 #[test]
-fn test_set_get_update() {
+fn test_set_get_update_delete() {
     let addr = start_test_server();
     thread::sleep(Duration::from_millis(100));
     let mut stream = TcpStream::connect(addr).unwrap();
@@ -87,6 +87,18 @@ fn test_set_get_update() {
     writeln!(stream, "GET mykey").unwrap();
     reader.read_line(&mut resp).unwrap();
     assert_eq!(resp.trim(), "updatedvalue");
+
+    resp.clear();
+
+    writeln!(stream, "DELETE mykey").unwrap();
+    reader.read_line(&mut resp).unwrap();
+    assert_eq!(resp.trim(), "OK");
+
+    resp.clear();
+
+    writeln!(stream, "GET mykey").unwrap();
+    reader.read_line(&mut resp).unwrap();
+    assert_eq!(resp.trim(), "nil");
 }
 
 #[test]
