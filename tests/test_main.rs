@@ -8,6 +8,8 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::collections::HashMap;
 use std::thread;
 use std::time::{Duration, SystemTime};
+use redust::persistence;
+use std::fs::{remove_file, OpenOptions};
 
 fn start_test_server() -> std::net::SocketAddr {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -211,4 +213,64 @@ fn test_transaction_discard() {
     writeln!(stream, "GET delkey").unwrap();
     reader.read_line(&mut resp).unwrap();
     assert_eq!(resp.trim(), "nil");
+}
+
+#[test]
+fn test_restore_state() {
+    // Pour éviter les conflits avec d'autres tests, on peut supprimer
+    // d'éventuels fichiers de snapshot ou AOF existants.
+    let _ = remove_file("snapshot.json");
+    let _ = remove_file("appendonly.aof");
+
+    // 1. Création d'une base de données initiale et insertion d'entrées.
+    let db: Db = Arc::new(Mutex::new(HashMap::new()));
+    {
+        let mut db_lock = db.lock().unwrap();
+        db_lock.insert("key1".to_string(), Entry { value: "value1".to_string(), expire_at: None });
+        db_lock.insert("key2".to_string(), Entry { value: "value2".to_string(), expire_at: None });
+    }
+    
+    // On effectue un snapshot de l'état initial.
+    persistence::snapshot(&db);
+
+    // 2. Simuler des opérations post-snapshot en écrivant directement dans l'AOF.
+    {
+        // Ouvrir l'AOF en mode append.
+        let mut aof_file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open("appendonly.aof")
+            .expect("Erreur lors de l'ouverture de l'AOF");
+            
+        // On va simuler :
+        // - Une mise à jour de "key1"
+        // - La suppression de "key2"
+        // - L'ajout de "key3"
+        writeln!(aof_file, "UPDATE key1 new_value1").expect("Erreur d'écriture UPDATE");
+        writeln!(aof_file, "DELETE key2").expect("Erreur d'écriture DELETE");
+        writeln!(aof_file, "SET key3 value3").expect("Erreur d'écriture SET");
+        aof_file.flush().expect("Erreur lors du flush de l'AOF");
+    }
+
+    // Pour simuler un crash, on crée une nouvelle base vide.
+    let new_db: Db = Arc::new(Mutex::new(HashMap::new()));
+
+    // 3. Appel de la restauration : le snapshot est chargé puis l'AOF est relu.
+    persistence::restore_state(&new_db);
+
+    // 4. Vérifier l'état final de la nouvelle base.
+    let new_db_lock = new_db.lock().unwrap();
+
+    // "key1" doit être mise à jour avec "new_value1"
+    assert_eq!(new_db_lock.get("key1").unwrap().value, "new_value1");
+
+    // "key2" doit avoir été supprimée (n'existe plus)
+    assert!(new_db_lock.get("key2").is_none());
+
+    // "key3" doit avoir été ajoutée avec la valeur "value3"
+    assert_eq!(new_db_lock.get("key3").unwrap().value, "value3");
+
+    // (Optionnel) Nettoyage des fichiers de persistance
+    let _ = remove_file("snapshot.json");
+    let _ = remove_file("appendonly.aof");
 }
