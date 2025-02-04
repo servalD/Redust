@@ -1,8 +1,10 @@
 // src/persistence.rs
 use crate::db::Db;
-use std::time::Duration;
-use std::thread;
-use std::sync::mpsc::Receiver;
+use std::fs::OpenOptions;
+use std::io::{BufWriter, Write};
+use std::sync::mpsc::{Receiver, TryRecvError};
+use std::time::{Duration, Instant};
+use std::thread::sleep;
 
 pub fn snapshot(db: &Db) {
     use std::fs::File;
@@ -14,16 +16,29 @@ pub fn snapshot(db: &Db) {
 }
 
 pub fn run_aof_writer(rx: Receiver<String>) {
-    use std::fs::OpenOptions;
-    use std::io::{BufWriter, Write};
     let mut file = BufWriter::new(OpenOptions::new()
         .create(true)
         .append(true)
         .open("appendonly.aof")
         .unwrap());
-    while let Ok(cmd) = rx.recv() {
-        writeln!(file, "{}", cmd).unwrap();
+
+    loop {
+        let mut buffer = Vec::new();
+        let start = Instant::now();
+
+        // Buffer during 1 millisecond
+        while start.elapsed() < Duration::from_millis(1) {
+            match rx.try_recv() {
+                Ok(cmd) => buffer.push(cmd),
+                Err(TryRecvError::Empty) => sleep(Duration::from_micros(10)),
+                Err(TryRecvError::Disconnected) => break,
+            }
+        }
+
+        // Écriture groupée dans le fichier
+        for cmd in buffer {
+            writeln!(file, "{}", cmd).unwrap();
+        }
         file.flush().unwrap();
-        thread::sleep(Duration::from_millis(1));
     }
 }
