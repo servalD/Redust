@@ -5,3 +5,18 @@ SET mykey myvalue
 SET txkey txvalue
 SET mykey myvalue
 SET mykey myvalue
+SET mykey myvalue
+SET txkey txvalue
+SET tempkey tempvalue TTL 1738773581
+UPDATE mykey updatedvalue
+DELETE mykey
+SET tempkey tempvalue TTL 1738773764
+SET mykey myvalue
+SET txkey txvalue
+UPDATE mykey updatedvalue
+DELETE mykey
+SET mykey myvalue
+SET tempkey tempvalue TTL 1738774200
+SET txkey txvalue
+UPDATE mykey updatedvalue
+DELETE mykey

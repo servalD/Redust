@@ -145,15 +145,15 @@ fn test_snapshot() {
     let db: Db = Arc::new(Mutex::new(HashMap::new()));
     {
         let mut db_lock = db.lock().unwrap();
-        db_lock.insert("snapkey".to_string(), Entry { value: "snapvalue".to_string(), expire_at: None });
+        db_lock.insert("snapshot_key".to_string(), Entry { value: "snapshot_value".to_string(), expire_at: None });
     }
     snapshot(&db);
     use std::fs::File;
     use serde_json;
     let file = File::open("snapshot.json").unwrap();
     let loaded: HashMap<String, Entry> = serde_json::from_reader(file).unwrap();
-    assert!(loaded.contains_key("snapkey"));
-    assert_eq!(loaded.get("snapkey").unwrap().value, "snapvalue");
+    assert!(loaded.contains_key("snapshot_key"));
+    assert_eq!(loaded.get("snapshot_key").unwrap().value, "snapshot_value");
 }
 
 #[test]

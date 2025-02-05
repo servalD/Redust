@@ -118,7 +118,8 @@ pub fn handle_client(stream: TcpStream, db: Db, aof_tx: Sender<String>) {
                 },
                 _ => {
                     let parts: Vec<&str> = trimmed.split_whitespace().collect();
-                    let response = process_command(&parts, &db, &aof_tx);
+                    let mut db_guard = db.lock().unwrap();
+                    let response = process_command_parts(&parts, &mut db_guard, &aof_tx);
                     writeln!(&stream, "{}", response).unwrap();
                     if parts[0].to_uppercase() == "QUIT" {
                         break;
@@ -129,113 +130,7 @@ pub fn handle_client(stream: TcpStream, db: Db, aof_tx: Sender<String>) {
     }
 }
 
-/// Exécute une commande hors transaction (chaque commande gère son propre verrou)
-fn process_command(parts: &[&str], db: &Db, aof_tx: &Sender<String>) -> String {
-    match parts[0].to_uppercase().as_str() {
-        "SET" => {
-            // Syntaxe : SET key value [TTL seconds]
-            if parts.len() < 3 {
-                return "ERR: Usage: SET key value [TTL seconds]".to_string();
-            }
-            let key = parts[1].to_string();
-            {
-                let db_guard = db.lock().unwrap();
-                if db_guard.contains_key(&key) {
-                    return "ERR: La clé existe déjà.".to_string();
-                }
-            }
-            let value = parts[2].to_string();
-            let expire_at = if parts.len() >= 5 && parts[3].to_uppercase() == "TTL" {
-                if let Ok(sec) = parts[4].parse::<u64>() {
-                    Some(SystemTime::now() + Duration::from_secs(sec))
-                } else { None }
-            } else { None };
-            let entry = Entry { value: value.clone(), expire_at };
-            {
-                let mut db_guard = db.lock().unwrap();
-                db_guard.insert(key.clone(), entry);
-            }
-            let cmd = if let Some(exp) = expire_at {
-                let ts = exp.duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
-                format!("SET {} {} TTL {}", key, value, ts)
-            } else {
-                format!("SET {} {}", key, value)
-            };
-            aof_tx.send(cmd).unwrap();
-            "OK".to_string()
-        },
-        "UPDATE" => {
-            if parts.len() < 3 {
-                return "ERR: Usage: UPDATE key value [TTL seconds]".to_string();
-            }
-            let key = parts[1].to_string();
-            {
-                let db_guard = db.lock().unwrap();
-                if !db_guard.contains_key(&key) {
-                    return "ERR: La clé n'existe pas.".to_string();
-                }
-            }
-            let value = parts[2].to_string();
-            let expire_at = if parts.len() >= 5 && parts[3].to_uppercase() == "TTL" {
-                if let Ok(sec) = parts[4].parse::<u64>() {
-                    Some(SystemTime::now() + Duration::from_secs(sec))
-                } else { None }
-            } else { None };
-            let entry = Entry { value: value.clone(), expire_at };
-            {
-                let mut db_guard = db.lock().unwrap();
-                db_guard.insert(key.clone(), entry);
-            }
-            let cmd = if let Some(exp) = expire_at {
-                let ts = exp.duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
-                format!("UPDATE {} {} TTL {}", key, value, ts)
-            } else {
-                format!("UPDATE {} {}", key, value)
-            };
-            aof_tx.send(cmd).unwrap();
-            "OK".to_string()
-        },
-        "GET" => {
-            if parts.len() < 2 {
-                return "ERR: Usage: GET key".to_string();
-            }
-            let key = parts[1];
-            let db_guard = db.lock().unwrap();
-            if let Some(entry) = db_guard.get(key) {
-                if let Some(exp) = entry.expire_at {
-                    if SystemTime::now() > exp {
-                        "nil".to_string()
-                    } else {
-                        entry.value.clone()
-                    }
-                } else {
-                    entry.value.clone()
-                }
-            } else {
-                "nil".to_string()
-            }
-        },
-        "DELETE" => {
-            if parts.len() < 2 {
-                return "ERR: Usage: DELETE key".to_string();
-            }
-            let key = parts[1].to_string();
-            {
-                let mut db_guard = db.lock().unwrap();
-                if db_guard.remove(&key).is_some() {
-                    aof_tx.send(format!("DELETE {}", key)).unwrap();
-                    "OK".to_string()
-                } else {
-                    "ERR: La clé n'existe pas.".to_string()
-                }
-            }
-        },
-        "QUIT" => "BYE".to_string(),
-        _ => "ERR: Commande inconnue".to_string(),
-    }
-}
 
-/// Exécute une commande dans le cadre d'une transaction (le verrou sur la DB est déjà détenu)
 fn process_command_parts(parts: &[&str], db: &mut HashMap<String, Entry>, aof_tx: &Sender<String>) -> String {
     match parts[0].to_uppercase().as_str() {
         "SET" => {
