@@ -40,7 +40,7 @@ pub fn run_server(addr: &str, db: Db) {
         }
     });
 
-    // Acceptation des connexions entrantes
+    // Acceptation des connexions entrantes (gestion parallel des clients)
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
